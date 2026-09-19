@@ -84,8 +84,8 @@ async function req(path, opts={}){
 
 function render(){
   const app = document.getElementById('app');
-  if(!ST || ST.needs_setup){ app.innerHTML = viewSetup(); return; }
-  if(!TOKEN){ app.innerHTML = viewLogin(); return; }
+  if(!ST || ST.needs_setup){ app.innerHTML = viewSetup(); bindMain(); return; }
+  if(!TOKEN){ app.innerHTML = viewLogin(); bindMain(); return; }
   app.innerHTML = `
   <div class="layout">
     <div class="sidebar">
@@ -229,26 +229,29 @@ function viewSettings(){
 // ---------- 事件绑定 ----------
 function bindMain(){
   const go = document.getElementById('go');
-  if(go){
+  if(go && !go.dataset.bound){
+    go.dataset.bound = '1';
     go.onclick = async ()=>{
       const err = document.getElementById('err');
-      err.textContent='';
+      if(err) err.textContent='';
       const pw1 = document.getElementById('pw1'), pw2 = document.getElementById('pw2'), pw = document.getElementById('pw');
       try{
-        if(pw1){ // setup
-          if(pw1.value!==pw2.value){ err.textContent='两次密码不一致'; return; }
+        if(pw1){ // 首次设置密码
+          if(pw1.value.length < 6){ if(err) err.textContent='密码至少 6 位'; return; }
+          if(pw1.value!==pw2.value){ if(err) err.textContent='两次密码不一致'; return; }
           const j = await req('/setup',{method:'POST',body:JSON.stringify({password:pw1.value})});
           TOKEN=j.token; sessionStorage.setItem('tk',TOKEN);
-        }else{ // login
+        }else if(pw){ // 登录
           const j = await req('/login',{method:'POST',body:JSON.stringify({password:pw.value})});
           TOKEN=j.token; sessionStorage.setItem('tk',TOKEN);
         }
         await refresh(); render();
-      }catch(e){ err.textContent=e.message; }
+      }catch(e){ if(err) err.textContent=e.message; }
     };
   }
   const tb = document.getElementById('testBtn');
-  if(tb) tb.onclick = async ()=>{
+  if(tb && !tb.dataset.bound){
+    tb.dataset.bound='1'; tb.onclick = async ()=>{
     const out = document.getElementById('testOut');
     out.innerHTML='<span class="muted">测试中...</span>';
     try{
@@ -259,7 +262,8 @@ function bindMain(){
     }catch(e){ out.innerHTML=`<div class="err">${e.message}</div>`; }
   };
   const pb = document.getElementById('pwBtn');
-  if(pb) pb.onclick = async ()=>{
+  if(pb && !pb.dataset.bound){
+    pb.dataset.bound='1'; pb.onclick = async ()=>{
     const e1=document.getElementById('pwErr'); e1.textContent='';
     try{
       await req('/password',{method:'POST',body:JSON.stringify({old_password:document.getElementById('oldPw').value,new_password:document.getElementById('newPw').value})});
