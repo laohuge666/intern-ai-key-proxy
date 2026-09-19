@@ -251,25 +251,29 @@ function bindMain(){
   }
   const tb = document.getElementById('testBtn');
   if(tb && !tb.dataset.bound){
-    tb.dataset.bound='1'; tb.onclick = async ()=>{
-    const out = document.getElementById('testOut');
-    out.innerHTML='<span class="muted">测试中...</span>';
-    try{
-      const j = await req('/models');
-      out.innerHTML = j.ok
-        ? `<div class="muted" style="margin-bottom:8px">共 ${j.models.length} 个模型</div><div class="code">${j.models.join('\n')}</div>`
-        : `<div class="err">${j.detail||'测试失败'}</div>`;
-    }catch(e){ out.innerHTML=`<div class="err">${e.message}</div>`; }
-  };
+    tb.dataset.bound='1';
+    tb.onclick = async ()=>{
+      const out = document.getElementById('testOut');
+      out.innerHTML='<span class="muted">测试中...</span>';
+      try{
+        const j = await req('/models');
+        out.innerHTML = j.ok
+          ? `<div class="muted" style="margin-bottom:8px">共 ${j.models.length} 个模型</div><div class="code">${j.models.join('\n')}</div>`
+          : `<div class="err">${j.detail||'测试失败'}</div>`;
+      }catch(e){ out.innerHTML=`<div class="err">${e.message}</div>`; }
+    };
+  }
   const pb = document.getElementById('pwBtn');
   if(pb && !pb.dataset.bound){
-    pb.dataset.bound='1'; pb.onclick = async ()=>{
-    const e1=document.getElementById('pwErr'); e1.textContent='';
-    try{
-      await req('/password',{method:'POST',body:JSON.stringify({old_password:document.getElementById('oldPw').value,new_password:document.getElementById('newPw').value})});
-      e1.style.color='var(--accent2)'; e1.textContent='密码已更新';
-    }catch(e){ e1.textContent=e.message; }
-  };
+    pb.dataset.bound='1';
+    pb.onclick = async ()=>{
+      const e1=document.getElementById('pwErr'); e1.textContent='';
+      try{
+        await req('/password',{method:'POST',body:JSON.stringify({old_password:document.getElementById('oldPw').value,new_password:document.getElementById('newPw').value})});
+        e1.style.color='var(--accent2)'; e1.textContent='密码已更新';
+      }catch(e){ e1.textContent=e.message; }
+    };
+  }
   const cfg = document.getElementById('cfgOut');
   if(cfg) req('/settings').then(j=>{
     cfg.innerHTML = `<table><tr><th>上游基址</th><td class="mono">${j.upstream_base_url}</td></tr>
