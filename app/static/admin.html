@@ -286,14 +286,20 @@ async function refresh(){
 
 // 异步视图（accounts/keys 需要请求数据）
 const _origBuild = buildMain;
-buildMain = function(){
-  const views = {accounts:viewAccounts,keys:viewKeys};
+buildMain = async function(){
+  const views = {accounts:viewAccounts, keys:viewKeys};
   const v = views[VIEW];
   if(v && typeof v==='function'){
     const main = document.getElementById('main');
     if(!main) return;
     main.innerHTML='<div class="muted">加载中...</div>';
-    Promise.resolve(v()).then(html=>{ if(main) main.innerHTML=html; bindMain(); });
+    try {
+      const html = await v();
+      if(main) main.innerHTML = html;
+    } catch (e) {
+      if(main) main.innerHTML = '<div class="err">加载失败：'+e.message+'</div>';
+    }
+    bindMain();
     return;
   }
   _origBuild();
