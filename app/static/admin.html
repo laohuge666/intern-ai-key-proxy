@@ -81,7 +81,9 @@ async function req(path, opts={}){
   if(r.status===401){
     // 会话失效（含容器重启后令牌清空）：自动退回登录页
     TOKEN=''; sessionStorage.removeItem('tk');
-    ST = null; render();
+    ST = undefined;
+    try{ await refresh(); }catch(e){}
+    render();
     throw new Error('会话已过期，请重新登录');
   }
   if(!r.ok) throw new Error(j.detail || ('HTTP '+r.status));
@@ -90,7 +92,12 @@ async function req(path, opts={}){
 
 function render(){
   const app = document.getElementById('app');
-  if(!ST || ST.needs_setup){ app.innerHTML = viewSetup(); bindMain(); return; }
+  // 未获取过状态：显示加载中，避免误判为首次设置
+  if(ST === null){
+    app.innerHTML = '<div class="login-wrap"><div class="sub" style="text-align:center">加载中...</div></div>';
+    return;
+  }
+  if(ST.needs_setup){ app.innerHTML = viewSetup(); bindMain(); return; }
   if(!TOKEN){ app.innerHTML = viewLogin(); bindMain(); return; }
   app.innerHTML = `
   <div class="layout">
@@ -109,7 +116,10 @@ function render(){
   if(lb) lb.onclick = async ()=>{
     try{ await req('/logout',{method:'POST'}); }catch(e){}
     TOKEN=''; sessionStorage.removeItem('tk');
-    ST=null; render();
+    // 先重新拉状态（此时是未登录态），再渲染，避免误判为首次设置
+    ST = undefined;
+    await refresh();
+    render();
   };
 }
 
@@ -369,7 +379,11 @@ function bindMain(){
 }
 
 async function refresh(){
-  try{ ST = await req('/status'); }catch(e){ ST=null; }
+  // status 接口无需登录，直接 fetch，不触发 401 跳转逻辑
+  try{
+    const r = await fetch(API+'/status');
+    ST = await r.json();
+  }catch(e){ ST = ST || undefined; }
 }
 
 // 异步视图（accounts/keys 需要请求数据）
