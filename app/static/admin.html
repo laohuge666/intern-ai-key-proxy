@@ -4,63 +4,90 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Intern-AI Key Proxy · 管理后台</title>
-<style>
-:root{
-  --bg:#0f1115; --panel:#171a21; --panel2:#1d212b; --border:#2a2f3a;
-  --text:#e6e9f0; --muted:#8b93a7; --accent:#4f8cff; --accent2:#22c55e;
-  --warn:#f59e0b; --bad:#ef4444;
+<style>:root{
+  --bg:#070b12; --panel:rgba(17,23,36,.78); --panel2:rgba(28,36,54,.85); --border:rgba(79,140,255,.16);
+  --text:#dfe8f5; --muted:#7c8aa5; --accent:#38bdf8; --accent2:#22d3ee; --accent3:#818cf8;
+  --warn:#fbbf24; --bad:#f87171;
+  --grad:linear-gradient(120deg,#38bdf8 0%,#6366f1 55%,#a855f7 100%);
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;font-size:14px}
-.layout{display:flex;min-height:100vh}
-.sidebar{width:220px;background:var(--panel);border-right:1px solid var(--border);padding:18px 14px;position:sticky;top:0;height:100vh}
-.logo{font-size:16px;font-weight:700;padding:6px 10px 18px;display:flex;align-items:center;gap:8px}
-.logo .dot{width:10px;height:10px;border-radius:50%;background:var(--accent2);box-shadow:0 0 8px var(--accent2)}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:#24324c;border-radius:99px}
+::-webkit-scrollbar-track{background:transparent}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;min-height:100vh;overflow-x:hidden}
+/* 背景：多层径向光晕 */
+body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse 55% 45% at 12% -5%,rgba(56,189,248,.14),transparent 60%),
+    radial-gradient(ellipse 45% 45% at 92% 8%,rgba(129,140,248,.13),transparent 60%),
+    radial-gradient(ellipse 70% 55% at 50% 115%,rgba(34,211,238,.07),transparent 60%)}
+/* 背景：细网格（顶部渐隐） */
+body::after{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:linear-gradient(rgba(79,140,255,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(79,140,255,.055) 1px,transparent 1px);
+  background-size:46px 46px;
+  -webkit-mask-image:radial-gradient(ellipse 85% 80% at 50% 0%,#000 25%,transparent 85%);
+  mask-image:radial-gradient(ellipse 85% 80% at 50% 0%,#000 25%,transparent 85%)}
+.layout{display:flex;min-height:100vh;position:relative;z-index:1}
+.sidebar{width:220px;background:rgba(12,17,27,.88);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-right:1px solid var(--border);padding:18px 14px;position:sticky;top:0;height:100vh}
+.logo{font-size:16px;font-weight:800;padding:6px 10px 18px;display:flex;align-items:center;gap:9px;letter-spacing:.4px}
+.logo .txt{background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.logo .dot{width:10px;height:10px;border-radius:50%;background:var(--accent2);box-shadow:0 0 12px var(--accent2);animation:pulse 2.4s ease-in-out infinite;flex:none}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.75)}}
 .menu{display:flex;flex-direction:column;gap:4px}
-.menu button{background:none;border:0;color:var(--muted);text-align:left;padding:9px 12px;border-radius:8px;cursor:pointer;font-size:14px;display:flex;gap:10px;align-items:center;transition:.15s}
+.menu button{background:none;border:0;color:var(--muted);text-align:left;padding:9px 12px;border-radius:8px;cursor:pointer;font-size:14px;display:flex;gap:10px;align-items:center;transition:.18s;position:relative}
 .menu button:hover{background:var(--panel2);color:var(--text)}
-.menu button.active{background:var(--panel2);color:var(--accent);font-weight:600}
-.main{flex:1;padding:26px 32px;max-width:1100px}
-h1{font-size:20px;margin-bottom:4px}
+.menu button.active{background:linear-gradient(90deg,rgba(56,189,248,.16),rgba(99,102,241,.06));color:var(--accent);font-weight:600}
+.menu button.active::before{content:"";position:absolute;left:0;top:20%;height:60%;width:2.5px;border-radius:99px;background:var(--grad);box-shadow:0 0 8px rgba(56,189,248,.8)}
+.main{flex:1;padding:26px 32px;max-width:1100px;position:relative;z-index:1}
+h1{font-size:21px;margin-bottom:4px;font-weight:700;letter-spacing:.2px}
 .sub{color:var(--muted);margin-bottom:22px}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:22px}
-.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+.card{background:var(--panel);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid var(--border);border-radius:14px;padding:16px;transition:.2s;position:relative;overflow:hidden}
+.card::after{content:"";position:absolute;inset:0;border-radius:14px;pointer-events:none;background:linear-gradient(120deg,rgba(56,189,248,.25),transparent 45%);opacity:0;transition:.25s}
+.card:hover{transform:translateY(-3px);border-color:rgba(56,189,248,.4);box-shadow:0 10px 30px -12px rgba(56,189,248,.35)}
+.card:hover::after{opacity:.12}
 .card .label{color:var(--muted);font-size:12px;margin-bottom:8px}
 .card .value{font-size:24px;font-weight:700}
 .card .value small{font-size:13px;color:var(--muted);font-weight:400}
 .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:99px;font-size:12px;font-weight:600}
+.badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor}
 .badge.online{background:rgba(34,197,94,.12);color:var(--accent2)}
 .badge.degraded{background:rgba(239,68,68,.12);color:var(--bad)}
-.panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:18px}
+.panel{background:var(--panel);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:18px}
 .panel h2{font-size:15px;margin-bottom:14px}
 .steps{display:flex;flex-direction:column;gap:14px}
 .step{display:flex;gap:14px;align-items:flex-start}
 .step .n{width:28px;height:28px;border-radius:50%;background:var(--panel2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:13px;flex:none}
-.step.done .n{background:rgba(34,197,94,.15);color:var(--accent2);border-color:transparent}
+.step.done .n{background:rgba(34,197,94,.15);color:var(--accent2);border-color:transparent;box-shadow:0 0 12px rgba(34,211,238,.25)}
 .step .t{font-weight:600;margin-bottom:2px}
 .step .d{color:var(--muted);font-size:13px}
-code,.code{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;overflow-x:auto;display:block;color:#c8d3e6;white-space:pre-wrap;word-break:break-all}
-input{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);width:100%;font-size:14px;outline:none}
-input:focus{border-color:var(--accent)}
-button.btn{background:var(--accent);border:0;color:#fff;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
-button.btn:hover{filter:brightness(1.12)}
-button.btn.ghost{background:var(--panel2);border:1px solid var(--border);color:var(--text)}
+code,.code{background:rgba(7,11,18,.85);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;overflow-x:auto;display:block;color:#a5e8ff;white-space:pre-wrap;word-break:break-all}
+input{background:rgba(7,11,18,.7);border:1px solid var(--border);border-radius:9px;padding:10px 12px;color:var(--text);width:100%;font-size:14px;outline:none;transition:.18s}
+input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(56,189,248,.15)}
+button.btn{background:var(--grad);border:0;color:#fff;padding:10px 20px;border-radius:9px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 4px 16px -6px rgba(56,189,248,.6);transition:.18s}
+button.btn:hover{filter:brightness(1.12);transform:translateY(-1px);box-shadow:0 6px 22px -6px rgba(56,189,248,.75)}
+button.btn.ghost{background:var(--panel2);border:1px solid var(--border);color:var(--text);box-shadow:none}
+button.btn.ghost:hover{border-color:rgba(56,189,248,.45);color:var(--accent);filter:none;box-shadow:0 4px 14px -8px rgba(56,189,248,.5)}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);font-weight:600;font-size:12px}
+th{color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
 td{padding:9px 10px;border-bottom:1px solid var(--border)}
+tbody tr{transition:.15s}
+tbody tr:hover{background:rgba(56,189,248,.05)}
 tr:last-child td{border-bottom:0}
 .pill{padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:600}
-.pill.ready{background:rgba(34,197,94,.12);color:var(--accent2)}
+.pill.ready{background:rgba(34,197,94,.12);color:var(--accent2);box-shadow:0 0 10px -3px rgba(34,211,238,.5)}
 .pill.cooling{background:rgba(245,158,11,.12);color:var(--warn)}
 .muted{color:var(--muted)}
 .mono{font-family:ui-monospace,Menlo,monospace;font-size:12px}
-.login-wrap{max-width:380px;margin:8vh auto;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:28px}
-.login-wrap h2{font-size:17px;margin-bottom:6px}
+.login-wrap{max-width:400px;margin:9vh auto;background:var(--panel);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--border);border-radius:18px;padding:30px;position:relative;z-index:1;box-shadow:0 24px 70px -24px rgba(56,189,248,.4),0 0 0 1px rgba(56,189,248,.06) inset}
+.login-wrap h2{font-size:18px;margin-bottom:6px;background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .login-wrap .sub{margin-bottom:18px}
 .login-wrap .field{margin-bottom:14px}
 .err{color:var(--bad);font-size:13px;margin-top:8px;min-height:18px}
 .hero{display:flex;align-items:center;gap:16px;margin-bottom:22px;flex-wrap:wrap}
+.hero h1{background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .hero .spacer{flex:1}
+button[id=logoutBtn]:hover{color:var(--accent) !important;background:rgba(56,189,248,.08) !important}
 </style>
 </head>
 <body>
@@ -102,7 +129,7 @@ function render(){
   app.innerHTML = `
   <div class="layout">
     <div class="sidebar">
-      <div class="logo"><span class="dot"></span>Intern-AI Proxy</div>
+      <div class="logo"><span class="dot"></span><span class="txt">Intern-AI Proxy</span></div>
       <div class="menu" id="menu"></div>
       <div style="margin-top:auto;padding-top:14px;border-top:1px solid var(--border)">
         <button id="logoutBtn" style="background:none;border:0;color:var(--muted);padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13px;width:100%;text-align:left">退出登录</button>
