@@ -88,7 +88,21 @@ c_ok ".env 已生成（权限 600）"
 
 # 5) 构建并启动
 c_info "构建镜像并启动（首次需要拉取基础镜像，请稍候）..."
-$COMPOSE up -d --build
+$COMPOSE up -d --build 2>&1 | tee /tmp/iakp-build.log || BUILD_FAIL=1
+if [ "${BUILD_FAIL:-0}" = "1" ] && grep -qiE "name resolution|Temporary failure" /tmp/iakp-build.log; then
+    c_err "构建容器内 DNS 解析失败（BuildKit 网络与宿主机 DNS 不一致）"
+    if [ ! -f /etc/docker/daemon.json ]; then
+        c_info "未检测到 daemon.json，自动配置 dns 并重启 docker"
+        mkdir -p /etc/docker
+        echo '{"dns": ["1.1.1.1", "8.8.8.8"]}' > /etc/docker/daemon.json
+        systemctl restart docker || service docker restart
+        c_ok "已配置 docker dns 并重启，重试构建..."
+        $COMPOSE up -d --build || { c_err "构建仍然失败，请检查网络"; exit 1; }
+    else
+        c_err "已存在 /etc/docker/daemon.json，请手动加入 {\"dns\": [\"1.1.1.1\",\"8.8.8.8\"]} 后重试"
+        exit 1
+    fi
+fi
 
 # 6) 健康检查
 c_info "等待服务就绪..."
