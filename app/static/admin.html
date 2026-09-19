@@ -170,7 +170,7 @@ function viewConsole(){
 
 function viewUsage(){
   const st = ST.stats;
-  return `<h1>用量</h1><div class="sub">进程内统计，容器重启后归零</div>
+  return `<h1>用量</h1><div class="sub">SQLite 持久化，容器重启后数据保留</div>
   <div class="cards">
     <div class="card"><div class="label">今日请求</div><div class="value">${fmt(st.today_requests)}</div></div>
     <div class="card"><div class="label">累计请求</div><div class="value">${fmt(st.total_requests)}</div></div>
@@ -189,24 +189,40 @@ function viewUsage(){
 async function viewAccounts(){
   let accs=[]; let err='';
   try{ const j = await req('/accounts'); accs=j.accounts; }catch(e){ err=e.message; }
-  return `<h1>账号</h1><div class="sub">上游 API Key 池（脱敏显示）</div>
-  ${err?`<div class="err">${err}</div>`:`<div class="panel"><h2>共 ${accs.length} 个账号</h2>
-    <table><tr><th>#</th><th>Key</th><th>状态</th><th>冷却剩余</th><th>调用数</th><th>错误数</th></tr>
+  if(err) return `<h1>账号</h1><div class="err">${err}</div>`;
+  return `<h1>账号</h1><div class="sub">上游 API Key 池（脱敏显示，增删立即生效）</div>
+  <div class="panel"><h2>共 ${accs.length} 个账号</h2>
+    <table><tr><th>#</th><th>Key</th><th>状态</th><th>冷却剩余</th><th>调用数</th><th>错误数</th><th></th></tr>
     ${accs.map(a=>`<tr><td>${a.index}</td><td class="mono">${a.key}</td>
       <td><span class="pill ${a.status}">${a.status==='cooling'?'冷却中':'可用'}</span></td>
-      <td>${a.status==='cooling'?a.cooldown_left+'s':'—'}</td><td>${a.used}</td><td>${a.errors}</td></tr>`).join('')}
-    </table></div>`}`;
+      <td>${a.status==='cooling'?a.cooldown_left+'s':'—'}</td><td>${a.used}</td><td>${a.errors}</td>
+      <td><button class="btn ghost" style="padding:4px 12px;font-size:12px" data-del-acc="${a.index}">删除</button></td></tr>`).join('')}
+    </table>
+    <div style="display:flex;gap:10px;margin-top:16px;align-items:center">
+      <input id="newAccKey" placeholder="粘贴新的上游 API Key（sk-...）" style="flex:1">
+      <button class="btn" id="addAccBtn">添加账号</button>
+    </div>
+    <div class="err" id="accErr" style="margin-top:8px"></div>
+  </div>`;
 }
 
 async function viewKeys(){
   let keys=[]; let err='';
   try{ const j = await req('/keys'); keys=j.keys; }catch(e){ err=e.message; }
-  return `<h1>API 密钥</h1><div class="sub">下游调用本网关时使用的密钥</div>
-  ${err?`<div class="err">${err}</div>`:`<div class="panel"><h2>密钥列表</h2>
-    <table><tr><th>标识</th><th>密钥（脱敏）</th><th>创建时间</th></tr>
-    ${keys.map(k=>`<tr><td>${k.id}</td><td class="mono">${k.key}</td><td>${k.created}</td></tr>`).join('')}
+  if(err) return `<h1>API 密钥</h1><div class="err">${err}</div>`;
+  return `<h1>API 密钥</h1><div class="sub">下游调用本网关时使用的密钥（可创建多个，分别发给不同客户端）</div>
+  <div class="panel"><h2>密钥列表（${keys.length}）</h2>
+    <table><tr><th>标识</th><th>名称</th><th>密钥（脱敏）</th><th>创建时间</th><th></th></tr>
+    ${keys.map(k=>`<tr><td class="mono">${k.id}</td><td>${k.name||'—'}</td><td class="mono">${k.key}</td><td>${k.created}</td>
+      <td><button class="btn ghost" style="padding:4px 12px;font-size:12px" data-del-key="${k.id}">删除</button></td></tr>`).join('')}
     </table>
-    <div class="muted" style="margin-top:12px">完整密钥在服务器 .env 文件中，修改后重启容器生效。</div></div>`}`;
+    <div style="display:flex;gap:10px;margin-top:16px;align-items:center">
+      <input id="newKeyName" placeholder="新密钥名称（如：手机/公司）" style="flex:1">
+      <button class="btn" id="addKeyBtn">创建密钥</button>
+    </div>
+    <div class="err" id="keyErr" style="margin-top:8px"></div>
+    <div id="newKeyOut" style="margin-top:10px"></div>
+  </div>`;
 }
 
 function viewTest(){
@@ -274,9 +290,62 @@ function bindMain(){
       }catch(e){ e1.textContent=e.message; }
     };
   }
+  // 添加上游账号
+  const addAcc = document.getElementById('addAccBtn');
+  if(addAcc && !addAcc.dataset.bound){
+    addAcc.dataset.bound='1';
+    addAcc.onclick = async ()=>{
+      const e1=document.getElementById('accErr'); e1.textContent='';
+      const inp=document.getElementById('newAccKey');
+      try{
+        await req('/accounts',{method:'POST',body:JSON.stringify({key:inp.value})});
+        await refresh(); buildMain();
+      }catch(e){ e1.textContent=e.message; }
+    };
+  }
+  // 删除上游账号
+  document.querySelectorAll('[data-del-acc]').forEach(b=>{
+    if(b.dataset.bound) return; b.dataset.bound='1';
+    b.onclick = async ()=>{
+      if(!confirm('删除该上游账号？该 Key 将立即停止被调度。')) return;
+      try{
+        await req('/accounts/'+b.dataset.delAcc,{method:'DELETE'});
+        await refresh(); buildMain();
+      }catch(e){ alert(e.message); }
+    };
+  });
+  // 创建下游密钥
+  const addKey = document.getElementById('addKeyBtn');
+  if(addKey && !addKey.dataset.bound){
+    addKey.dataset.bound='1';
+    addKey.onclick = async ()=>{
+      const e1=document.getElementById('keyErr'); e1.textContent='';
+      const inp=document.getElementById('newKeyName');
+      const out=document.getElementById('newKeyOut');
+      try{
+        const j = await req('/keys',{method:'POST',body:JSON.stringify({name:inp.value})});
+        if(out) out.innerHTML = `<div class="code" style="color:var(--accent2)">密钥已创建（仅显示一次，请立即复制）：<br>${j.key}</div>`;
+        inp.value='';
+        await refresh(); buildMain();
+        // buildMain 重建 DOM，把提示重新填回去
+        const out2=document.getElementById('newKeyOut');
+        if(out2) out2.innerHTML = `<div class="code" style="color:var(--accent2)">密钥已创建（仅显示一次，请立即复制）：<br>${j.key}</div>`;
+      }catch(e){ if(e1) e1.textContent=e.message; }
+    };
+  }
+  // 删除下游密钥
+  document.querySelectorAll('[data-del-key]').forEach(b=>{
+    if(b.dataset.bound) return; b.dataset.bound='1';
+    b.onclick = async ()=>{
+      if(!confirm('删除该密钥？使用该密钥的客户端将立即无法调用。')) return;
+      try{
+        await req('/keys/'+b.dataset.delKey,{method:'DELETE'});
+        await refresh(); buildMain();
+      }catch(e){ alert(e.message); }
+    };
+  });
   const cfg = document.getElementById('cfgOut');
-  if(cfg) req('/settings').then(j=>{
-    cfg.innerHTML = `<table><tr><th>上游基址</th><td class="mono">${j.upstream_base_url}</td></tr>
+  if(cfg) req('/settings').then(j=>{    cfg.innerHTML = `<table><tr><th>上游基址</th><td class="mono">${j.upstream_base_url}</td></tr>
       <tr><th>Key 数量</th><td>${j.total_keys}</td></tr>
       <tr><th>冷却秒数</th><td>${j.key_cooldown_seconds}s</td></tr>
       <tr><th>请求超时</th><td>${j.request_timeout_seconds}s</td></tr>

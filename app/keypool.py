@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from .config import settings
+
+KEY_STORE = os.environ.get("KEY_STORE", "/app/data/keys.json")
 
 
 @dataclass
@@ -26,6 +30,7 @@ class KeyPool:
       若全部冷却中，则返回（强制）最早解冻的那一个，并标记降级。
     - mark_error(index): 记录错误并把该 Key 置入冷却。
     - mark_ok(index): 记录成功使用。
+    - add(key) / remove(index): 运行期增删 Key，并持久化到 data/keys.json。
     """
 
     def __init__(self, keys: List[str], cooldown_seconds: int) -> None:
@@ -69,6 +74,45 @@ class KeyPool:
             entry = self._entries[index]
             entry.cooldown_until = 0.0
 
+    async def add(self, key: str) -> int:
+        """添加新 Key，返回新索引。重复 Key 报错。持久化明文到 keys.json。"""
+        key = (key or "").strip()
+        if not key:
+            raise ValueError("Key 不能为空")
+        async with self._lock:
+            if any(e.key == key for e in self._entries):
+                raise ValueError("该 Key 已存在")
+            self._entries.append(_Entry(key=key))
+            self._persist_locked()
+            return len(self._entries) - 1
+
+    async def remove(self, index: int) -> None:
+        """删除指定索引的 Key。至少保留一个，否则调度无 Key 可用。"""
+        async with self._lock:
+            if not 0 <= index < len(self._entries):
+                raise IndexError("索引超出范围")
+            if len(self._entries) <= 1:
+                raise ValueError("至少保留一个 Key，不能删除")
+            self._entries.pop(index)
+            if self._cursor >= len(self._entries):
+                self._cursor = 0
+            self._persist_locked()
+
+    def _persist_locked(self) -> None:
+        """把当前全部 Key 明文落盘（管理后台增删后立即生效，重启不丢失）。"""
+        try:
+            os.makedirs(os.path.dirname(KEY_STORE) or ".", exist_ok=True)
+            tmp = f"{KEY_STORE}.tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump([e.key for e in self._entries], fh, ensure_ascii=False, indent=2)
+            os.replace(tmp, KEY_STORE)
+            try:
+                os.chmod(KEY_STORE, 0o600)
+            except OSError:
+                pass
+        except OSError:
+            pass
+
     def _snapshot(self) -> List[Dict]:
         now = time.time()
         return [
@@ -91,7 +135,30 @@ class KeyPool:
         return self._snapshot()
 
 
-pool = KeyPool(settings.keys, settings.key_cooldown_seconds)
+def _load_persisted_keys(defaults: List[str]) -> List[str]:
+    """启动时优先读 data/keys.json；没有则用环境变量的 Key，并写一份过去。"""
+    try:
+        with open(KEY_STORE, "r", encoding="utf-8") as fh:
+            keys = [k.strip() for k in json.load(fh) if isinstance(k, str) and k.strip()]
+        if keys:
+            return keys
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+    return list(defaults)
+
+
+_init_keys = _load_persisted_keys(settings.keys)
+pool = KeyPool(_init_keys, settings.key_cooldown_seconds)
+
+# 首次启动（环境变量有 Key 但还没有 keys.json）时落一份盘
+if _init_keys and not os.path.exists(KEY_STORE):
+    try:
+        os.makedirs(os.path.dirname(KEY_STORE) or ".", exist_ok=True)
+        with open(KEY_STORE, "w", encoding="utf-8") as fh:
+            json.dump(_init_keys, fh, ensure_ascii=False, indent=2)
+        os.chmod(KEY_STORE, 0o600)
+    except OSError:
+        pass
 
 
 def mask(key: Optional[str]) -> str:

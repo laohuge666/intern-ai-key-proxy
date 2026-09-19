@@ -15,6 +15,23 @@ from .stats import stats
 _DROP_HEADERS = {"content-encoding", "transfer-encoding", "content-length", "connection"}
 
 
+def _authorized(token: Optional[str]) -> bool:
+    """下游鉴权：支持管理后台创建的多个密钥（data/api_keys.json），
+    兼容未启用管理后台时 .env 里的单一 PROXY_API_KEY。"""
+    if not settings.require_auth:
+        return True
+    if not token:
+        return False
+    if token == settings.proxy_api_key and settings.proxy_api_key:
+        return True
+    try:
+        from .admin import _valid_api_keys
+
+        return token in _valid_api_keys()
+    except Exception:
+        return False
+
+
 def _record(request: Request, path: str, status_code: int, usage: Optional[dict]) -> None:
     """记录一次请求到统计。usage 为从上游响应解析出的 token 用量。"""
     try:
@@ -108,11 +125,11 @@ def _error_json(status: int, message: str, trace: Optional[str] = None) -> JSONR
 
 async def proxy_request(request: Request, path: str) -> Any:
     """将下游请求转发到上游，自动注入轮询出的 API Key。"""
-    # 1) 鉴权
+    # 1) 鉴权（支持管理后台多密钥）
     if settings.require_auth:
         auth = request.headers.get("authorization", "")
         token = auth.split(" ", 1)[1] if " " in auth else ""
-        if token != settings.proxy_api_key:
+        if not _authorized(token):
             return _error_json(401, "invalid proxy API key")
 
     # 2) 只允许安全的路径片段（防止 // 绕过跑到别的域）
