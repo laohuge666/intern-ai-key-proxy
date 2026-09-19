@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Intern-AI Key Proxy · 管理后台</title>
+<style>
+:root{
+  --bg:#0f1115; --panel:#171a21; --panel2:#1d212b; --border:#2a2f3a;
+  --text:#e6e9f0; --muted:#8b93a7; --accent:#4f8cff; --accent2:#22c55e;
+  --warn:#f59e0b; --bad:#ef4444;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;font-size:14px}
+.layout{display:flex;min-height:100vh}
+.sidebar{width:220px;background:var(--panel);border-right:1px solid var(--border);padding:18px 14px;position:sticky;top:0;height:100vh}
+.logo{font-size:16px;font-weight:700;padding:6px 10px 18px;display:flex;align-items:center;gap:8px}
+.logo .dot{width:10px;height:10px;border-radius:50%;background:var(--accent2);box-shadow:0 0 8px var(--accent2)}
+.menu{display:flex;flex-direction:column;gap:4px}
+.menu button{background:none;border:0;color:var(--muted);text-align:left;padding:9px 12px;border-radius:8px;cursor:pointer;font-size:14px;display:flex;gap:10px;align-items:center;transition:.15s}
+.menu button:hover{background:var(--panel2);color:var(--text)}
+.menu button.active{background:var(--panel2);color:var(--accent);font-weight:600}
+.main{flex:1;padding:26px 32px;max-width:1100px}
+h1{font-size:20px;margin-bottom:4px}
+.sub{color:var(--muted);margin-bottom:22px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:22px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+.card .label{color:var(--muted);font-size:12px;margin-bottom:8px}
+.card .value{font-size:24px;font-weight:700}
+.card .value small{font-size:13px;color:var(--muted);font-weight:400}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:99px;font-size:12px;font-weight:600}
+.badge.online{background:rgba(34,197,94,.12);color:var(--accent2)}
+.badge.degraded{background:rgba(239,68,68,.12);color:var(--bad)}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:18px}
+.panel h2{font-size:15px;margin-bottom:14px}
+.steps{display:flex;flex-direction:column;gap:14px}
+.step{display:flex;gap:14px;align-items:flex-start}
+.step .n{width:28px;height:28px;border-radius:50%;background:var(--panel2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:13px;flex:none}
+.step.done .n{background:rgba(34,197,94,.15);color:var(--accent2);border-color:transparent}
+.step .t{font-weight:600;margin-bottom:2px}
+.step .d{color:var(--muted);font-size:13px}
+code,.code{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;overflow-x:auto;display:block;color:#c8d3e6;white-space:pre-wrap;word-break:break-all}
+input{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);width:100%;font-size:14px;outline:none}
+input:focus{border-color:var(--accent)}
+button.btn{background:var(--accent);border:0;color:#fff;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
+button.btn:hover{filter:brightness(1.12)}
+button.btn.ghost{background:var(--panel2);border:1px solid var(--border);color:var(--text)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);font-weight:600;font-size:12px}
+td{padding:9px 10px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:0}
+.pill{padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:600}
+.pill.ready{background:rgba(34,197,94,.12);color:var(--accent2)}
+.pill.cooling{background:rgba(245,158,11,.12);color:var(--warn)}
+.muted{color:var(--muted)}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.login-wrap{max-width:380px;margin:8vh auto;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:28px}
+.login-wrap h2{font-size:17px;margin-bottom:6px}
+.login-wrap .sub{margin-bottom:18px}
+.login-wrap .field{margin-bottom:14px}
+.err{color:var(--bad);font-size:13px;margin-top:8px;min-height:18px}
+.hero{display:flex;align-items:center;gap:16px;margin-bottom:22px;flex-wrap:wrap}
+.hero .spacer{flex:1}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const API = '/admin/api';
+let TOKEN = sessionStorage.getItem('tk') || '';
+let VIEW = 'console';
+let ST = null;   // status 缓存
+
+const fmt = n => n>=1e6 ? (n/1e6).toFixed(2)+'M' : n>=1e3 ? (n/1e3).toFixed(1)+'K' : String(n||0);
+
+async function req(path, opts={}){
+  const headers = {'Content-Type':'application/json'};
+  if(TOKEN) headers['Authorization']='Bearer '+TOKEN;
+  const r = await fetch(API+path, {...opts, headers});
+  const j = await r.json().catch(()=>({detail:'请求失败'}));
+  if(!r.ok) throw new Error(j.detail || ('HTTP '+r.status));
+  return j;
+}
+
+function render(){
+  const app = document.getElementById('app');
+  if(!ST || ST.needs_setup){ app.innerHTML = viewSetup(); return; }
+  if(!TOKEN){ app.innerHTML = viewLogin(); return; }
+  app.innerHTML = `
+  <div class="layout">
+    <div class="sidebar">
+      <div class="logo"><span class="dot"></span>Intern-AI Proxy</div>
+      <div class="menu" id="menu"></div>
+    </div>
+    <div class="main" id="main"></div>
+  </div>`;
+  buildMenu();
+  buildMain();
+}
+
+function buildMenu(){
+  const items = [['console','控制台'],['usage','用量'],['accounts','账号'],['keys','API 密钥'],['test','模型测试'],['settings','设置']];
+  document.getElementById('menu').innerHTML = items.map(([k,l])=>
+    `<button data-v="${k}" class="${VIEW===k?'active':''}">${l}</button>`).join('');
+  document.querySelectorAll('#menu button').forEach(b=>b.onclick=()=>{VIEW=b.dataset.v;buildMain();buildMenu();});
+}
+
+function buildMain(){
+  const el = document.getElementById('main');
+  const views = {console:viewConsole,usage:viewUsage,accounts:viewAccounts,keys:viewKeys,test:viewTest,settings:viewSettings};
+  el.innerHTML = (views[VIEW]||viewConsole)();
+  bindMain();
+}
+
+// ---------- 首次设置 ----------
+function viewSetup(){
+  return `<div class="login-wrap">
+    <h2>设置管理员密码</h2>
+    <div class="sub">首次使用，请设置管理后台的登录密码（至少 6 位）</div>
+    <div class="field"><input id="pw1" type="password" placeholder="输入密码"></div>
+    <div class="field"><input id="pw2" type="password" placeholder="再次确认"></div>
+    <div class="err" id="err"></div>
+    <button class="btn" id="go">设置并登录</button>
+  </div>`;
+}
+// ---------- 登录 ----------
+function viewLogin(){
+  return `<div class="login-wrap">
+    <h2>登录管理后台</h2>
+    <div class="sub">Intern-AI Key Proxy 网关管理</div>
+    <div class="field"><input id="pw" type="password" placeholder="管理员密码"></div>
+    <div class="err" id="err"></div>
+    <button class="btn" id="go">登录</button>
+  </div>`;
+}
+
+// ---------- 控制台 ----------
+function viewConsole(){
+  const s = ST, st = s.stats;
+  const steps = [
+    {t:'添加上游账号', d:'已接入 '+s.total_accounts+' 个账号（Key 池轮询调度）', done:s.total_accounts>0},
+    {t:'创建 API 密钥', d:'下游统一密钥：'+(s.api_keys?'已创建':'未创建')+'，见「API 密钥」页', done:s.api_keys>0},
+    {t:'发送首个请求', d:'累计请求 '+fmt(st.total_requests)+' 次，今日 '+fmt(st.today_requests)+' 次', done:st.total_requests>0},
+  ];
+  return `
+  <div class="hero">
+    <div><h1>控制台</h1><div class="sub">几步内开始使用你的 API 网关</div></div>
+    <div class="spacer"></div>
+    <span class="badge ${s.gateway_status==='online'?'online':'degraded'}">网关${s.gateway_status==='online'?'在线':'降级'}</span>
+  </div>
+  <div class="cards">
+    <div class="card"><div class="label">可用账号</div><div class="value">${s.ready_accounts}<small> / ${s.total_accounts} 个</small></div></div>
+    <div class="card"><div class="label">API 密钥</div><div class="value">${s.api_keys}<small> 个</small></div></div>
+    <div class="card"><div class="label">今日用量</div><div class="value">${fmt(st.today_tokens)}<small> tokens</small></div></div>
+    <div class="card"><div class="label">累计用量</div><div class="value">${fmt(st.total_tokens)}<small> tokens</small></div></div>
+    <div class="card"><div class="label">今日请求</div><div class="value">${fmt(st.today_requests)}</div></div>
+    <div class="card"><div class="label">缓存命中</div><div class="value">${st.cache_hits}<small> 次，命中率 ${st.cache_hit_rate}%</small></div></div>
+  </div>
+  <div class="panel"><h2>开始使用</h2><div class="steps">
+    ${steps.map(x=>`<div class="step ${x.done?'done':''}"><div class="n">${x.done?'✓':'·'}</div><div><div class="t">${x.t}</div><div class="d">${x.d}</div></div></div>`).join('')}
+  </div></div>
+  <div class="panel"><h2>首个 API 请求</h2>
+    <div class="code">curl ${location.origin}/v1/chat/completions \\
+  -H "Authorization: Bearer &lt;你的 API 密钥&gt;" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"deepseek-v4-flash-0731","messages":[{"role":"user","content":"你好"}]}'</div>
+    <div class="muted" style="margin-top:10px">密钥在「API 密钥」页查看；模型列表见「模型测试」。</div>
+  </div>`;
+}
+
+function viewUsage(){
+  const st = ST.stats;
+  return `<h1>用量</h1><div class="sub">进程内统计，容器重启后归零</div>
+  <div class="cards">
+    <div class="card"><div class="label">今日请求</div><div class="value">${fmt(st.today_requests)}</div></div>
+    <div class="card"><div class="label">累计请求</div><div class="value">${fmt(st.total_requests)}</div></div>
+    <div class="card"><div class="label">今日 tokens</div><div class="value">${fmt(st.today_tokens)}</div></div>
+    <div class="card"><div class="label">累计 tokens</div><div class="value">${fmt(st.total_tokens)}</div></div>
+    <div class="card"><div class="label">错误请求</div><div class="value">${st.errors}</div></div>
+    <div class="card"><div class="label">运行时长</div><div class="value">${Math.floor(st.uptime/3600)}<small>h ${(Math.floor(st.uptime/60))%60}m</small></div></div>
+  </div>
+  <div class="panel"><h2>最近请求（最多 100 条）</h2>
+    ${st.recent.length? `<table><tr><th>时间</th><th>模型</th><th>路径</th><th>tokens</th><th>状态</th></tr>
+      ${st.recent.map(r=>`<tr><td class="mono">${r.time}</td><td class="mono">${r.model||'—'}</td><td class="mono">${r.path}</td><td>${r.tokens||'—'}</td><td>${r.status}</td></tr>`).join('')}</table>`
+      : '<div class="muted">暂无请求记录</div>'}
+  </div>`;
+}
+
+async function viewAccounts(){
+  let accs=[]; let err='';
+  try{ const j = await req('/accounts'); accs=j.accounts; }catch(e){ err=e.message; }
+  return `<h1>账号</h1><div class="sub">上游 API Key 池（脱敏显示）</div>
+  ${err?`<div class="err">${err}</div>`:`<div class="panel"><h2>共 ${accs.length} 个账号</h2>
+    <table><tr><th>#</th><th>Key</th><th>状态</th><th>冷却剩余</th><th>调用数</th><th>错误数</th></tr>
+    ${accs.map(a=>`<tr><td>${a.index}</td><td class="mono">${a.key}</td>
+      <td><span class="pill ${a.status}">${a.status==='cooling'?'冷却中':'可用'}</span></td>
+      <td>${a.status==='cooling'?a.cooldown_left+'s':'—'}</td><td>${a.used}</td><td>${a.errors}</td></tr>`).join('')}
+    </table></div>`}`;
+}
+
+async function viewKeys(){
+  let keys=[]; let err='';
+  try{ const j = await req('/keys'); keys=j.keys; }catch(e){ err=e.message; }
+  return `<h1>API 密钥</h1><div class="sub">下游调用本网关时使用的密钥</div>
+  ${err?`<div class="err">${err}</div>`:`<div class="panel"><h2>密钥列表</h2>
+    <table><tr><th>标识</th><th>密钥（脱敏）</th><th>创建时间</th></tr>
+    ${keys.map(k=>`<tr><td>${k.id}</td><td class="mono">${k.key}</td><td>${k.created}</td></tr>`).join('')}
+    </table>
+    <div class="muted" style="margin-top:12px">完整密钥在服务器 .env 文件中，修改后重启容器生效。</div></div>`}`;
+}
+
+function viewTest(){
+  return `<h1>模型测试</h1><div class="sub">查询上游可用模型（走本网关 Key 池）</div>
+  <div class="panel"><button class="btn" id="testBtn">测试连接</button>
+    <div id="testOut" style="margin-top:14px"></div></div>`;
+}
+
+function viewSettings(){
+  return `<h1>设置</h1><div class="sub">网关配置与管理员密码</div>
+  <div class="panel"><h2>修改管理员密码</h2>
+    <div class="field" style="margin-bottom:10px"><input id="oldPw" type="password" placeholder="原密码"></div>
+    <div class="field" style="margin-bottom:10px"><input id="newPw" type="password" placeholder="新密码（至少 6 位）"></div>
+    <div class="err" id="pwErr"></div>
+    <button class="btn" id="pwBtn">保存</button></div>
+  <div class="panel"><h2>当前配置</h2>
+    <div class="muted" id="cfgOut">加载中...</div></div>`;
+}
+
+// ---------- 事件绑定 ----------
+function bindMain(){
+  const go = document.getElementById('go');
+  if(go){
+    go.onclick = async ()=>{
+      const err = document.getElementById('err');
+      err.textContent='';
+      const pw1 = document.getElementById('pw1'), pw2 = document.getElementById('pw2'), pw = document.getElementById('pw');
+      try{
+        if(pw1){ // setup
+          if(pw1.value!==pw2.value){ err.textContent='两次密码不一致'; return; }
+          const j = await req('/setup',{method:'POST',body:JSON.stringify({password:pw1.value})});
+          TOKEN=j.token; sessionStorage.setItem('tk',TOKEN);
+        }else{ // login
+          const j = await req('/login',{method:'POST',body:JSON.stringify({password:pw.value})});
+          TOKEN=j.token; sessionStorage.setItem('tk',TOKEN);
+        }
+        await refresh(); render();
+      }catch(e){ err.textContent=e.message; }
+    };
+  }
+  const tb = document.getElementById('testBtn');
+  if(tb) tb.onclick = async ()=>{
+    const out = document.getElementById('testOut');
+    out.innerHTML='<span class="muted">测试中...</span>';
+    try{
+      const j = await req('/models');
+      out.innerHTML = j.ok
+        ? `<div class="muted" style="margin-bottom:8px">共 ${j.models.length} 个模型</div><div class="code">${j.models.join('\n')}</div>`
+        : `<div class="err">${j.detail||'测试失败'}</div>`;
+    }catch(e){ out.innerHTML=`<div class="err">${e.message}</div>`; }
+  };
+  const pb = document.getElementById('pwBtn');
+  if(pb) pb.onclick = async ()=>{
+    const e1=document.getElementById('pwErr'); e1.textContent='';
+    try{
+      await req('/password',{method:'POST',body:JSON.stringify({old_password:document.getElementById('oldPw').value,new_password:document.getElementById('newPw').value})});
+      e1.style.color='var(--accent2)'; e1.textContent='密码已更新';
+    }catch(e){ e1.textContent=e.message; }
+  };
+  const cfg = document.getElementById('cfgOut');
+  if(cfg) req('/settings').then(j=>{
+    cfg.innerHTML = `<table><tr><th>上游基址</th><td class="mono">${j.upstream_base_url}</td></tr>
+      <tr><th>Key 数量</th><td>${j.total_keys}</td></tr>
+      <tr><th>冷却秒数</th><td>${j.key_cooldown_seconds}s</td></tr>
+      <tr><th>请求超时</th><td>${j.request_timeout_seconds}s</td></tr>
+      <tr><th>强制鉴权</th><td>${j.require_auth?'是':'否'}</td></tr></table>`;
+  }).catch(e=>{cfg.textContent='加载失败：'+e.message;});
+}
+
+async function refresh(){
+  try{ ST = await req('/status'); }catch(e){ ST=null; }
+}
+
+// 异步视图（accounts/keys 需要请求数据）
+const _origBuild = buildMain;
+buildMain = function(){
+  const views = {accounts:viewAccounts,keys:viewKeys};
+  const v = views[VIEW];
+  if(v && typeof v==='function'){
+    const main = document.getElementById('main');
+    if(!main) return;
+    main.innerHTML='<div class="muted">加载中...</div>';
+    Promise.resolve(v()).then(html=>{ if(main) main.innerHTML=html; bindMain(); });
+    return;
+  }
+  _origBuild();
+};
+
+(async()=>{ await refresh(); render(); })();
+setInterval(async()=>{ if(TOKEN && ST && !ST.needs_setup){ await refresh(); if(VIEW==='console'||VIEW==='usage') buildMain(); } }, 15000);
+</script>
+</body>
+</html>

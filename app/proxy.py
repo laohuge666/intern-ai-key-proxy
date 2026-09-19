@@ -9,9 +9,39 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from .config import settings
 from .keypool import mask, pool
+from .stats import stats
 
 # 这些响应头不应原样透传给下游（可能是上游网关的连接信息）
 _DROP_HEADERS = {"content-encoding", "transfer-encoding", "content-length", "connection"}
+
+
+def _record(request: Request, path: str, status_code: int, usage: Optional[dict]) -> None:
+    """记录一次请求到统计。usage 为从上游响应解析出的 token 用量。"""
+    try:
+        model = ""
+        body = request.scope.get("_raw_json_body")
+        if isinstance(body, dict):
+            model = str(body.get("model") or "")
+        stats.record(
+            model=model,
+            path=f"/v1/{path}",
+            tokens=(usage or {}).get("total_tokens", 0),
+            cache_hit=bool((usage or {}).get("prompt_tokens_details", {}).get("cached_tokens")),
+            status_code=status_code,
+        )
+    except Exception:
+        pass
+
+
+def _extract_usage(raw: bytes) -> Optional[dict]:
+    """从上游响应体里提取 usage 字段（OpenAI 格式）。"""
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict) and isinstance(data.get("usage"), dict):
+            return data["usage"]
+    except Exception:
+        pass
+    return None
 
 
 def _is_stream_request(request: Request) -> bool:
@@ -134,6 +164,9 @@ async def proxy_request(request: Request, path: str) -> Any:
                     k: v for k, v in dict(resp.headers).items() if k.lower() not in _DROP_HEADERS
                 }
                 ctype = resp.headers.get("content-type") if hasattr(resp.headers, "get") else None
+                # 统计：从上游响应里提取 token 用量
+                usage = _extract_usage(raw) if isinstance(raw, (bytes, bytearray)) else None
+                _record(request, path, resp.status_code, usage)
                 # JSONResponse 需要可序列化对象；上游可能返回 bytes 或已解析对象
                 if isinstance(raw, (bytes, bytearray)):
                     try:

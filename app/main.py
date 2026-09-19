@@ -3,11 +3,15 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
-from .config import settings
+from .config import settings, validate_settings
 from . import keypool
 from .proxy import proxy_request
+from .admin import router as admin_router
+from .stats import stats
+from .state import state
 
 app = FastAPI(
     title="Intern-AI Key Proxy",
@@ -43,6 +47,16 @@ async def keys_status(request: Request) -> Any:
         if token != settings.proxy_api_key:
             return JSONResponse(status_code=401, content={"error": "invalid proxy API key"})
     return {"keys": await keypool.pool.snapshot()}
+
+
+app.include_router(admin_router)
+app.mount("/admin/static", StaticFiles(directory="app/static"), name="static")
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page() -> str:
+    with open("app/static/admin.html", "r", encoding="utf-8") as fh:
+        return fh.read()
 
 
 # 所有 /v1/... 请求统一转发到上游（chat/completions、embeddings、models 等）
