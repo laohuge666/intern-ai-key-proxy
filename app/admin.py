@@ -17,9 +17,44 @@ from .stats import stats
 
 router = APIRouter(prefix="/admin/api", tags=["admin"])
 
-# 会话令牌有效期 7 天；令牌存在内存，容器重启需重新登录
+# 会话令牌有效期 7 天；令牌持久化到文件，容器重启后仍有效
 SESSION_TTL = 7 * 24 * 3600
+SESSIONS_FILE = os.environ.get("SESSIONS_FILE", "/app/data/sessions.json")
 _sessions: dict = {}
+_sessions_mtime = 0.0
+
+
+def _load_sessions() -> None:
+    """启动时从文件恢复会话（容器重启不丢失登录态）。"""
+    global _sessions_mtime
+    try:
+        st = os.stat(SESSIONS_FILE)
+        if st.st_mtime == _sessions_mtime:
+            return
+        _sessions_mtime = st.st_mtime
+        with open(SESSIONS_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict):
+            now = time.time()
+            _sessions.clear()
+            _sessions.update({k: v for k, v in data.items() if isinstance(v, (int, float)) and v > now})
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+
+
+def _save_sessions() -> None:
+    try:
+        os.makedirs(os.path.dirname(SESSIONS_FILE) or ".", exist_ok=True)
+        tmp = f"{SESSIONS_FILE}.tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(_sessions, fh)
+        os.replace(tmp, SESSIONS_FILE)
+        try:
+            os.chmod(SESSIONS_FILE, 0o600)
+        except OSError:
+            pass
+    except OSError:
+        pass
 
 # 下游 API 密钥持久化文件（支持多密钥，创建/删除即时生效，重启不丢失）
 API_KEYS_FILE = os.environ.get("API_KEYS_FILE", "/app/data/api_keys.json")
@@ -49,12 +84,16 @@ class CreateApiKeyIn(BaseModel):
 def _create_session() -> str:
     token = secrets.token_urlsafe(32)
     _sessions[token] = time.time() + SESSION_TTL
+    _save_sessions()
     return token
 
 
 def _require_auth(request: Request) -> str:
     auth = request.headers.get("authorization", "")
     token = auth.split(" ", 1)[1] if " " in auth else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="未登录或会话已过期")
+    _load_sessions()
     exp = _sessions.get(token)
     if not exp or exp < time.time():
         raise HTTPException(status_code=401, detail="未登录或会话已过期")
@@ -137,6 +176,7 @@ async def admin_login(body: LoginIn) -> dict:
 @router.post("/logout")
 async def admin_logout(token: str = Depends(_require_auth)) -> dict:
     _sessions.pop(token, None)
+    _save_sessions()
     return {"ok": True}
 
 

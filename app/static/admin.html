@@ -78,6 +78,12 @@ async function req(path, opts={}){
   if(TOKEN) headers['Authorization']='Bearer '+TOKEN;
   const r = await fetch(API+path, {...opts, headers});
   const j = await r.json().catch(()=>({detail:'请求失败'}));
+  if(r.status===401){
+    // 会话失效（含容器重启后令牌清空）：自动退回登录页
+    TOKEN=''; sessionStorage.removeItem('tk');
+    ST = null; render();
+    throw new Error('会话已过期，请重新登录');
+  }
   if(!r.ok) throw new Error(j.detail || ('HTTP '+r.status));
   return j;
 }
@@ -91,11 +97,20 @@ function render(){
     <div class="sidebar">
       <div class="logo"><span class="dot"></span>Intern-AI Proxy</div>
       <div class="menu" id="menu"></div>
+      <div style="margin-top:auto;padding-top:14px;border-top:1px solid var(--border)">
+        <button id="logoutBtn" style="background:none;border:0;color:var(--muted);padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13px;width:100%;text-align:left">退出登录</button>
+      </div>
     </div>
     <div class="main" id="main"></div>
   </div>`;
   buildMenu();
   buildMain();
+  const lb = document.getElementById('logoutBtn');
+  if(lb) lb.onclick = async ()=>{
+    try{ await req('/logout',{method:'POST'}); }catch(e){}
+    TOKEN=''; sessionStorage.removeItem('tk');
+    ST=null; render();
+  };
 }
 
 function buildMenu(){
