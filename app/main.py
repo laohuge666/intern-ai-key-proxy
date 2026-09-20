@@ -44,9 +44,37 @@ async def keys_status(request: Request) -> Any:
     if settings.require_auth:
         auth = request.headers.get("authorization", "")
         token = auth.split(" ", 1)[1] if " " in auth else ""
-        if token != settings.proxy_api_key:
+        from .proxy import _authorized
+
+        if not _authorized(token):
             return JSONResponse(status_code=401, content={"error": "invalid proxy API key"})
     return {"keys": await keypool.pool.snapshot()}
+
+
+# /v1/models 列表缓存：客户端插件常每隔数十秒探活，避免每次都打到上游
+_models_cache: dict = {"data": None, "expire": 0.0}
+_MODELS_TTL = 60.0
+
+
+@app.api_route("/v1/models", methods=["GET"])
+async def models_cached(request: Request) -> Any:
+    import time as _time
+
+    now = _time.time()
+    if _models_cache["data"] is not None and _models_cache["expire"] > now:
+        return JSONResponse(content=_models_cache["data"])
+    # 鉴权与 catch_all 一致，直接复用转发逻辑并缓存结果
+    resp = await proxy_request(request, "models")
+    try:
+        body = resp.body if hasattr(resp, "body") else None
+        if body is not None and resp.status_code == 200:
+            import json as _json
+
+            _models_cache["data"] = _json.loads(body)
+            _models_cache["expire"] = now + _MODELS_TTL
+    except Exception:
+        pass
+    return resp
 
 
 app.include_router(admin_router)
