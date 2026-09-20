@@ -264,9 +264,21 @@ async function viewKeys(){
   if(err) return `<h1>API 密钥</h1><div class="err">${err}</div>`;
   return `<h1>API 密钥</h1><div class="sub">下游调用本网关时使用的密钥（可创建多个，分别发给不同客户端）</div>
   <div class="panel"><h2>密钥列表（${keys.length}）</h2>
-    <table><tr><th>标识</th><th>名称</th><th>密钥（脱敏）</th><th>创建时间</th><th></th></tr>
-    ${keys.map(k=>`<tr><td class="mono">${k.id}</td><td>${k.name||'—'}</td><td class="mono">${k.key}</td><td>${k.created}</td>
-      <td><button class="btn ghost" style="padding:4px 12px;font-size:12px" data-del-key="${k.id}">删除</button></td></tr>`).join('')}
+    <table><tr><th>标识</th><th>名称</th><th>密钥</th><th>创建时间</th><th></th></tr>
+    ${keys.map(k=>{
+      const plain = PLAIN_KEYS[k.id];
+      const isNew = LAST_NEW_KEY && LAST_NEW_KEY.id===k.id;
+      const shown = plain || k.key;
+      return `<tr>
+      <td class="mono">${k.id}</td><td>${k.name||'—'}</td>
+      <td class="mono" style="${isNew?'color:var(--accent2)':''}">${shown}${plain?'':''}</td>
+      <td>${k.created}</td>
+      <td style="white-space:nowrap">
+        ${plain ? `<button class="btn ghost" style="padding:4px 12px;font-size:12px" data-copy-key="${k.id}">复制完整密钥</button>`
+                 : `<button class="btn ghost" style="padding:4px 12px;font-size:12px" data-reveal-key="${k.id}">显示明文</button>`}
+        <button class="btn ghost" style="padding:4px 12px;font-size:12px" data-del-key="${k.id}">删除</button>
+      </td></tr>`;
+    }).join('')}
     </table>
     <div style="display:flex;gap:10px;margin-top:16px;align-items:center">
       <input id="newKeyName" placeholder="新密钥名称（如：手机/公司）" style="flex:1">
@@ -276,6 +288,10 @@ async function viewKeys(){
     <div id="newKeyOut" style="margin-top:10px"></div>
   </div>`;
 }
+
+// 明文只在内存中暂存，供页面内复制；刷新/切走即丢失
+let PLAIN_KEYS = {};   // id -> 明文
+let LAST_NEW_KEY = null; // {id, name, key} 最近创建的，用于醒目提示
 
 function viewTest(){
   return `<h1>模型测试</h1><div class="sub">查询上游可用模型（走本网关 Key 池）</div>
@@ -373,18 +389,50 @@ function bindMain(){
     addKey.onclick = async ()=>{
       const e1=document.getElementById('keyErr'); e1.textContent='';
       const inp=document.getElementById('newKeyName');
-      const out=document.getElementById('newKeyOut');
       try{
         const j = await req('/keys',{method:'POST',body:JSON.stringify({name:inp.value})});
-        if(out) out.innerHTML = `<div class="code" style="color:var(--accent2)">密钥已创建（仅显示一次，请立即复制）：<br>${j.key}</div>`;
+        // 明文存内存：重建 DOM 后仍在，可反复复制；离开/刷新页面即丢失
+        PLAIN_KEYS[j.id] = j.key;
+        LAST_NEW_KEY = {id:j.id, name:j.name, key:j.key};
         inp.value='';
         await refresh(); buildMain();
-        // buildMain 重建 DOM，把提示重新填回去
+        // 二次保险：重建后若提示被异步覆盖，再补一次
         const out2=document.getElementById('newKeyOut');
-        if(out2) out2.innerHTML = `<div class="code" style="color:var(--accent2)">密钥已创建（仅显示一次，请立即复制）：<br>${j.key}</div>`;
+        if(out2) out2.innerHTML = `<div class="code" style="color:var(--accent2)">密钥已创建，明文已在下方列表中，可点击「复制完整密钥」：<br>${j.key}</div>`;
       }catch(e){ if(e1) e1.textContent=e.message; }
     };
   }
+  // 复制完整密钥（页面内存中的明文）
+  document.querySelectorAll('[data-copy-key]').forEach(b=>{
+    if(b.dataset.bound) return; b.dataset.bound='1';
+    b.onclick = async ()=>{
+      const id = b.dataset.copyKey;
+      const val = PLAIN_KEYS[id];
+      if(!val){ buildMain(); return; }
+      try{
+        await navigator.clipboard.writeText(val);
+        b.textContent='已复制 ✓'; setTimeout(()=>{ if(b.isConnected) b.textContent='复制完整密钥'; },1500);
+      }catch(_){
+        // 非安全上下文（http）降级：选中文本
+        const ta=document.createElement('textarea'); ta.value=val;
+        document.body.appendChild(ta); ta.select();
+        try{ document.execCommand('copy'); b.textContent='已复制 ✓'; setTimeout(()=>{ if(b.isConnected) b.textContent='复制完整密钥'; },1500); }catch(e2){ alert('复制失败，请手动选择文本：\n'+val); }
+        ta.remove();
+      }
+    };
+  });
+  // 显示明文（从后端取一次，存入内存）
+  document.querySelectorAll('[data-reveal-key]').forEach(b=>{
+    if(b.dataset.bound) return; b.dataset.bound='1';
+    b.onclick = async ()=>{
+      const id = b.dataset.revealKey;
+      try{
+        const j = await req('/keys/'+id+'?plain=1');
+        PLAIN_KEYS[id] = j.key;
+        buildMain();
+      }catch(e){ alert(e.message); }
+    };
+  });
   // 删除下游密钥
   document.querySelectorAll('[data-del-key]').forEach(b=>{
     if(b.dataset.bound) return; b.dataset.bound='1';

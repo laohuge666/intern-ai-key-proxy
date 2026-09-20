@@ -212,7 +212,7 @@ async def admin_del_account(index: int, token: str = Depends(_require_auth)) -> 
 
 @router.get("/keys")
 async def admin_keys(token: str = Depends(_require_auth)) -> dict:
-    """下游 API 密钥列表（脱敏显示）。"""
+    """下游 API 密钥列表（默认脱敏；管理后台可显式查看明文）。"""
     keys = _load_api_keys()
     return {
         "keys": [
@@ -225,6 +225,16 @@ async def admin_keys(token: str = Depends(_require_auth)) -> dict:
             for k in keys
         ]
     }
+
+
+@router.get("/keys/{key_id}")
+async def admin_key_detail(key_id: str, plain: int = 0, token: str = Depends(_require_auth)) -> dict:
+    """查单个密钥的明文（管理后台「显示明文」按钮使用）。"""
+    keys = _load_api_keys()
+    hit = next((k for k in keys if k["id"] == key_id), None)
+    if not hit:
+        raise HTTPException(status_code=404, detail="密钥不存在")
+    return {"id": hit["id"], "name": hit.get("name", ""), "key": hit["key"] if plain else _mask_key(hit["key"])}
 
 
 @router.post("/keys")
